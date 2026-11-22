@@ -1,0 +1,6 @@
+{
+  "name": "WireLogic",
+  "description": "Visual data orchestration and workflow automation platform combining SQL, REST APIs, JavaScript transforms, AI/LLM nodes, real-time WebSocket ingest, and S3/PDF exports.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
