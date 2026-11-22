@@ -150,6 +150,11 @@ export default function App() {
     }
   }, []);
 
+  const activeWorkflowIdRef = useRef<string | null>(activeWorkflowId);
+  useEffect(() => {
+    activeWorkflowIdRef.current = activeWorkflowId;
+  }, [activeWorkflowId]);
+
   useEffect(() => {
     if (!token) return;
     void loadWorkspaceData();
@@ -165,12 +170,13 @@ export default function App() {
     });
 
     socket.on('execution:started', (data: { workflowId: string }) => {
-      if (data.workflowId === activeWorkflowId) {
+      if (data.workflowId === activeWorkflowIdRef.current) {
         setNodeRunStates({});
       }
     });
 
-    socket.on('execution:node:running', (data: { nodeId: string }) => {
+    socket.on('execution:node:running', (data: { workflowId: string; nodeId: string }) => {
+      if (data.workflowId !== activeWorkflowIdRef.current) return;
       setNodeRunStates((prev) => ({
         ...prev,
         [data.nodeId]: {
@@ -182,7 +188,8 @@ export default function App() {
 
     socket.on(
       'execution:node:completed',
-      (data: { nodeId: string; result: NodeExecutionResult }) => {
+      (data: { workflowId: string; nodeId: string; result: NodeExecutionResult }) => {
+        if (data.workflowId !== activeWorkflowIdRef.current) return;
         setNodeRunStates((prev) => ({
           ...prev,
           [data.nodeId]: data.result,
@@ -190,7 +197,8 @@ export default function App() {
       }
     );
 
-    socket.on('execution:node:error', (data: { nodeId: string; error: string }) => {
+    socket.on('execution:node:error', (data: { workflowId: string; nodeId: string; error: string }) => {
+      if (data.workflowId !== activeWorkflowIdRef.current) return;
       setNodeRunStates((prev) => ({
         ...prev,
         [data.nodeId]: {
@@ -204,15 +212,17 @@ export default function App() {
     socket.on(
       'execution:completed',
       (data: { workflowId: string; status: string; error?: string }) => {
-        setIsRunningWorkflow(false);
-        if (data.status === 'failed' && data.error) {
-          showToast('err', data.error);
-        } else {
-          showToast('ok', 'Workflow execution completed.');
+        if (data.workflowId === activeWorkflowIdRef.current) {
+          setIsRunningWorkflow(false);
+          if (data.status === 'failed' && data.error) {
+            showToast('err', data.error);
+          } else {
+            showToast('ok', 'Workflow execution completed.');
+          }
+          void apiFetch<{ executions: WorkflowExecutionRecord[] }>(
+            `/api/workflows/${data.workflowId}/executions`
+          ).then((r) => setExecutions(r.executions));
         }
-        void apiFetch<{ executions: WorkflowExecutionRecord[] }>(
-          `/api/workflows/${data.workflowId}/executions`
-        ).then((r) => setExecutions(r.executions));
         void apiFetch<{ artifacts: ArtifactRecord[] }>('/api/artifacts').then((r) =>
           setArtifacts(r.artifacts)
         );
@@ -239,7 +249,7 @@ export default function App() {
       socket.disconnect();
       socketRef.current = null;
     };
-  }, [token, loadWorkspaceData, activeWorkflowId, showToast]);
+  }, [token, loadWorkspaceData, showToast]);
 
   const saveTimerRef = useRef<number | null>(null);
   const persistWorkflow = useCallback((wf: WorkflowRecord) => {

@@ -14,7 +14,7 @@ import {
   Webhook,
   Zap,
 } from 'lucide-react';
-import { getAuthToken } from '../lib/api';
+import { downloadArtifact } from '../lib/api';
 import type {
   CredentialRecord,
   NodeExecutionResult,
@@ -249,16 +249,20 @@ export function NodeInspector({
                   <span className="tabular-nums font-mono-code">{runResult.durationMs} ms</span>
                 </div>
 
-                {outputObj && typeof outputObj.downloadUrl === 'string' && (
-                  <a
-                    href={`${outputObj.downloadUrl}?token=${encodeURIComponent(getAuthToken() || '')}`}
-                    target="_blank"
-                    rel="noreferrer"
+                {outputObj && typeof outputObj.artifactId === 'string' && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      void downloadArtifact(
+                        String(outputObj.artifactId),
+                        String(outputObj.filename || 'Report.pdf')
+                      )
+                    }
                     className="w-full py-2 px-3 rounded-lg bg-[#EEF2FF] hover:bg-[#E0E7FF] text-[#3730A3] text-[12.5px] font-medium flex items-center justify-center gap-2 transition-colors"
                   >
                     <Download className="w-3.5 h-3.5" />
                     <span>Download {String(outputObj.filename || 'Report.pdf')}</span>
-                  </a>
+                  </button>
                 )}
 
                 {outputObj && typeof outputObj.url === 'string' && node.kind === 's3' && (

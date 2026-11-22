@@ -52,9 +52,7 @@ export async function requireUserAuth(
   next: NextFunction
 ): Promise<void> {
   const authHeader = req.headers.authorization;
-  const bearer = authHeader?.startsWith('Bearer ') ? authHeader.slice(7).trim() : '';
-  const queryToken = typeof req.query.token === 'string' ? req.query.token : '';
-  const token = bearer || queryToken;
+  const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7).trim() : '';
 
   if (!token) {
     res.status(401).json({ error: 'Authentication required. Provide Authorization: Bearer <token>.' });

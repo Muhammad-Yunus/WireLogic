@@ -112,7 +112,7 @@ export function WorkflowCanvas({
   }, [nodes]);
 
   useEffect(() => {
-    function handleWindowMouseMove(e: MouseEvent) {
+    function handleWindowPointerMove(e: PointerEvent) {
       const ds = dragState.current;
       if (!ds) return;
       const dx = e.clientX - ds.startClientX;
@@ -132,7 +132,7 @@ export function WorkflowCanvas({
       }
     }
 
-    function handleWindowMouseUp(e: MouseEvent) {
+    function handleWindowPointerUp(e: PointerEvent) {
       const ds = dragState.current;
       if (!ds) return;
       if (ds.type === 'node' && ds.nodeId && ds.moved) {
@@ -148,15 +148,17 @@ export function WorkflowCanvas({
       dragState.current = null;
     }
 
-    window.addEventListener('mousemove', handleWindowMouseMove);
-    window.addEventListener('mouseup', handleWindowMouseUp);
+    window.addEventListener('pointermove', handleWindowPointerMove);
+    window.addEventListener('pointerup', handleWindowPointerUp);
+    window.addEventListener('pointercancel', handleWindowPointerUp);
     return () => {
-      window.removeEventListener('mousemove', handleWindowMouseMove);
-      window.removeEventListener('mouseup', handleWindowMouseUp);
+      window.removeEventListener('pointermove', handleWindowPointerMove);
+      window.removeEventListener('pointerup', handleWindowPointerUp);
+      window.removeEventListener('pointercancel', handleWindowPointerUp);
     };
   }, [zoom, onMoveNode]);
 
-  function handleCanvasMouseDown(e: React.MouseEvent<HTMLDivElement>) {
+  function handleCanvasPointerDown(e: React.PointerEvent<HTMLDivElement>) {
     if (e.target !== e.currentTarget && !(e.target as HTMLElement).dataset.canvasBg) {
       return;
     }
@@ -172,11 +174,11 @@ export function WorkflowCanvas({
     };
   }
 
-  function handleNodeMouseDown(e: React.MouseEvent, node: WorkflowNode) {
+  function handleNodePointerDown(e: React.PointerEvent, node: WorkflowNode) {
     e.stopPropagation();
     setMenuNodeId(null);
     onSelectNode(node.id);
-    if (locked) return;
+    if (locked || node.config.lock) return;
     dragState.current = {
       type: 'node',
       nodeId: node.id,
@@ -201,10 +203,10 @@ export function WorkflowCanvas({
   return (
     <div
       ref={containerRef}
-      onMouseDown={handleCanvasMouseDown}
+      onPointerDown={handleCanvasPointerDown}
       onWheel={handleWheel}
       data-canvas-bg="true"
-      className="relative flex-1 w-full h-full tekna-canvas-dots overflow-hidden select-none cursor-grab active:cursor-grabbing"
+      className="relative flex-1 w-full h-full tekna-canvas-dots overflow-hidden select-none touch-none cursor-grab active:cursor-grabbing"
     >
       {/* Transformed graph layer */}
       <div
@@ -319,7 +321,7 @@ export function WorkflowCanvas({
             return (
               <div
                 key={node.id}
-                onMouseDown={(e) => handleNodeMouseDown(e, node)}
+                onPointerDown={(e) => handleNodePointerDown(e, node)}
                 style={{ left: node.x, top: node.y, minWidth: dim.width }}
                 className={`pointer-events-auto absolute group rounded-full bg-white pl-2 pr-3.5 py-1.5 flex items-center gap-2 cursor-pointer transition-shadow ${
                   isSelected
@@ -343,7 +345,7 @@ export function WorkflowCanvas({
                 <button
                   type="button"
                   title="Add connected node"
-                  onMouseDown={(e) => e.stopPropagation()}
+                  onPointerDown={(e) => e.stopPropagation()}
                   onClick={(e) => {
                     e.stopPropagation();
                     const r = e.currentTarget.getBoundingClientRect();
@@ -361,7 +363,7 @@ export function WorkflowCanvas({
           return (
             <div
               key={node.id}
-              onMouseDown={(e) => handleNodeMouseDown(e, node)}
+              onPointerDown={(e) => handleNodePointerDown(e, node)}
               style={{ left: node.x, top: node.y, width: dim.width }}
               className={`pointer-events-auto absolute group bg-white rounded-[9px] cursor-pointer transition-shadow ${
                 isFailed
@@ -393,7 +395,7 @@ export function WorkflowCanvas({
                   <button
                     type="button"
                     title="Run this node"
-                    onMouseDown={(e) => e.stopPropagation()}
+                    onPointerDown={(e) => e.stopPropagation()}
                     onClick={(e) => {
                       e.stopPropagation();
                       onRunSingleNode(node.id);
@@ -406,7 +408,7 @@ export function WorkflowCanvas({
                   <button
                     type="button"
                     title="Node options"
-                    onMouseDown={(e) => e.stopPropagation()}
+                    onPointerDown={(e) => e.stopPropagation()}
                     onClick={(e) => {
                       e.stopPropagation();
                       setMenuNodeId(menuNodeId === node.id ? null : node.id);
@@ -421,7 +423,7 @@ export function WorkflowCanvas({
               {/* Context Menu */}
               {menuNodeId === node.id && (
                 <div
-                  onMouseDown={(e) => e.stopPropagation()}
+                  onPointerDown={(e) => e.stopPropagation()}
                   className="absolute right-2 top-9 z-40 w-36 bg-white border border-[#DCE2EC] rounded-lg shadow-lg py-1"
                 >
                   <button
@@ -533,7 +535,7 @@ export function WorkflowCanvas({
               <button
                 type="button"
                 title="Add next node"
-                onMouseDown={(e) => e.stopPropagation()}
+                onPointerDown={(e) => e.stopPropagation()}
                 onClick={(e) => {
                   e.stopPropagation();
                   const r = e.currentTarget.getBoundingClientRect();
@@ -554,7 +556,7 @@ export function WorkflowCanvas({
 
       {/* Bottom-Left Floating Canvas Controls Toolbar (matching Screenshots 1 & 2) */}
       <div
-        onMouseDown={(e) => e.stopPropagation()}
+        onPointerDown={(e) => e.stopPropagation()}
         className="absolute left-4 bottom-4 z-20 flex items-center gap-2"
       >
         <div className="bg-white border border-[#DCE2EC] rounded-[8px] shadow-sm flex items-center divide-x divide-[#F1F5F9] overflow-hidden">

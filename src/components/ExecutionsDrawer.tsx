@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { CheckCircle2, Clock, Download, MessageSquare, Send, X, XCircle } from 'lucide-react';
-import { getAuthToken } from '../lib/api';
+import { downloadArtifact } from '../lib/api';
 import type { ArtifactRecord, WorkflowExecutionRecord } from '../shared/types';
 
 interface ExecutionsDrawerProps {
@@ -27,6 +27,12 @@ export function ExecutionsDrawer({
   );
   const [chatMessage, setChatMessage] = useState('');
   const [sending, setSending] = useState(false);
+
+  useEffect(() => {
+    if (open) {
+      setTab(mode === 'chat' ? 'chat' : 'history');
+    }
+  }, [open, mode]);
 
   if (!open) return null;
 
@@ -170,15 +176,14 @@ export function ExecutionsDrawer({
                       </div>
                     </div>
                     {art.storageType === 'pdf_db' ? (
-                      <a
-                        href={`/api/artifacts/${art.id}/download?token=${encodeURIComponent(getAuthToken() || '')}`}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="px-3 py-1.5 rounded-lg bg-[#EEF2FF] text-[#3730A3] text-[12px] font-medium flex items-center gap-1.5 shrink-0"
+                      <button
+                        type="button"
+                        onClick={() => void downloadArtifact(art.id, art.filename)}
+                        className="px-3 py-1.5 rounded-lg bg-[#EEF2FF] hover:bg-[#E0E7FF] text-[#3730A3] text-[12px] font-medium flex items-center gap-1.5 shrink-0 transition-colors"
                       >
                         <Download className="w-3.5 h-3.5" />
                         <span>Download</span>
-                      </a>
+                      </button>
                     ) : (
                       <span className="text-[11.5px] font-mono-code text-[#0F766E] truncate max-w-[160px]">
                         {art.storageKey}

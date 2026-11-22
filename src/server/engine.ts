@@ -155,6 +155,7 @@ async function buildRestHeadersAndAuth(
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body,
+      signal: AbortSignal.timeout(15000),
     });
     if (!tokenResp.ok) {
       throw new Error(`OAuth2 token exchange failed with status ${tokenResp.status}`);
@@ -174,10 +175,12 @@ function runSandboxedJs(
   input: unknown,
   nodes: Record<string, unknown>
 ): unknown {
+  const noop = () => {};
   const sandbox = {
     input,
     $input: input,
     nodes,
+    console: { log: noop, info: noop, warn: noop, error: noop },
     Math,
     JSON,
     Date,
@@ -324,26 +327,60 @@ async function executeSingleNode(
         node.config.connectionId
       );
       try {
-        // Basic safety check for workspace shared database: allow SELECT on weather_data / ingested_events, or parameterized DML only when not touching auth/users/sessions
+        const { text, values } = parameterizeSqlTemplate(rawQuery, ctx);
         if (isWorkspace) {
           const lowered = rawQuery.toLowerCase();
-          const forbidden = /\b(users|sessions|api_keys|credentials|drop\s+table|truncate|alter\s+table|grant|revoke)\b/i;
+          const forbidden =
+            /\b(users|sessions|api_keys|credentials|artifacts|workflow_executions|workflows|pg_catalog|information_schema|public\.|drop\s|truncate\s|alter\s|create\s|grant\s|revoke\s|copy\s)\b/i;
           if (forbidden.test(lowered)) {
             throw new Error(
-              'Workspace SQL queries cannot access auth/vault tables or execute DDL statements.'
+              'Workspace SQL queries may only query your weather_data and ingested_events tables.'
             );
           }
+          if (!/^\s*(select|with)\b/i.test(rawQuery)) {
+            throw new Error(
+              'Workspace SQL (Northwinds DB) supports read-only SELECT queries. Connect an external PostgreSQL datasource for write statements.'
+            );
+          }
+
+          const client = await pool.connect();
+          try {
+            await client.query('BEGIN READ WRITE');
+            await client.query(
+              'CREATE TEMP TABLE weather_data ON COMMIT DROP AS SELECT id, location, date, temperature, condition, humidity, wind_speed, source, created_at FROM public.weather_data WHERE user_id = $1',
+              [userId]
+            );
+            await client.query(
+              'CREATE TEMP TABLE ingested_events ON COMMIT DROP AS SELECT id, stream, event_type, source, payload, received_at FROM public.ingested_events WHERE user_id = $1',
+              [userId]
+            );
+            const queryResult = await client.query(text, values);
+            await client.query('COMMIT');
+            result = {
+              output: {
+                connection: connectionName,
+                rowCount: queryResult.rowCount ?? queryResult.rows.length,
+                rows: queryResult.rows,
+                fields: queryResult.fields.map((f) => f.name),
+              },
+            };
+          } catch (sqlErr) {
+            await client.query('ROLLBACK').catch(() => {});
+            throw sqlErr;
+          } finally {
+            client.release();
+          }
+        } else {
+          const queryResult = await pool.query(text, values);
+          result = {
+            output: {
+              connection: connectionName,
+              rowCount: queryResult.rowCount ?? queryResult.rows.length,
+              rows: queryResult.rows,
+              fields: queryResult.fields.map((f) => f.name),
+            },
+          };
         }
-        const { text, values } = parameterizeSqlTemplate(rawQuery, ctx);
-        const queryResult = await pool.query(text, values);
-        result = {
-          output: {
-            connection: connectionName,
-            rowCount: queryResult.rowCount ?? queryResult.rows.length,
-            rows: queryResult.rows,
-            fields: queryResult.fields.map((f) => f.name),
-          },
-        };
       } finally {
         if (!isWorkspace) {
           await pool.end().catch(() => {});
@@ -378,6 +415,7 @@ async function executeSingleNode(
         method,
         headers,
         body: bodyStr,
+        signal: AbortSignal.timeout(15000),
       });
 
       const contentType = resp.headers.get('content-type') || '';
@@ -453,6 +491,7 @@ async function executeSingleNode(
               { role: 'user', content: prompt },
             ],
           }),
+          signal: AbortSignal.timeout(30000),
         });
         if (!resp.ok) {
           const errText = await resp.text();
@@ -567,6 +606,7 @@ async function executeSingleNode(
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify(alertPayload),
+              signal: AbortSignal.timeout(15000),
             });
           }
         }
@@ -814,16 +854,52 @@ export async function runWorkflow(params: {
       });
 
       try {
-        const res = await executeSingleNode(
-          node,
-          workflow,
-          execution.id,
-          userId,
-          triggerPayload,
-          nodeOutputs,
-          item.upstreamInput,
-          io
-        );
+        let res: { output: unknown; branch?: number; artifactId?: string };
+        if (node.config.loop && node.kind !== 'start') {
+          const upstreamObj = item.upstreamInput as Record<string, unknown> | undefined;
+          const rawItems = Array.isArray(item.upstreamInput)
+            ? item.upstreamInput
+            : Array.isArray(upstreamObj?.rows)
+              ? upstreamObj.rows
+              : [item.upstreamInput];
+          const items = rawItems.slice(0, 50);
+          const loopOutputs: unknown[] = [];
+          let lastArtifactId: string | undefined;
+          for (const subItem of items) {
+            const subRes = await executeSingleNode(
+              node,
+              workflow,
+              execution.id,
+              userId,
+              triggerPayload,
+              nodeOutputs,
+              subItem,
+              io
+            );
+            loopOutputs.push(subRes.output);
+            if (subRes.artifactId) lastArtifactId = subRes.artifactId;
+          }
+          res = {
+            output: {
+              looped: true,
+              count: loopOutputs.length,
+              truncated: rawItems.length > 50,
+              results: loopOutputs,
+            },
+            artifactId: lastArtifactId,
+          };
+        } else {
+          res = await executeSingleNode(
+            node,
+            workflow,
+            execution.id,
+            userId,
+            triggerPayload,
+            nodeOutputs,
+            item.upstreamInput,
+            io
+          );
+        }
 
         const nodeEnd = new Date();
         nodeOutputs[node.id] = res.output;

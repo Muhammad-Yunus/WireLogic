@@ -29,16 +29,38 @@ export function syncWorkflowSchedule(workflow: WorkflowRecord): void {
     return;
   }
 
+  const workflowId = workflow.id;
   const task = cron.schedule(expr, () => {
-    void runWorkflow({
-      workflow,
-      userId: workflow.userId,
-      triggerType: 'schedule',
-      triggerPayload: {
-        scheduledAt: new Date().toISOString(),
-        cronExpression: expr,
-      },
-      io: ioInstance,
+    void (async () => {
+      const [latest] = await db
+        .select()
+        .from(workflows)
+        .where(eq(workflows.id, workflowId))
+        .limit(1);
+      if (!latest || !latest.isActive || latest.triggerType !== 'schedule') {
+        return;
+      }
+      const record: WorkflowRecord = {
+        ...latest,
+        triggerType: latest.triggerType as TriggerType,
+        triggerConfig: latest.triggerConfig || {},
+        nodes: latest.nodes || [],
+        edges: latest.edges || [],
+        updatedAt: latest.updatedAt.toISOString(),
+        createdAt: latest.createdAt.toISOString(),
+      };
+      await runWorkflow({
+        workflow: record,
+        userId: record.userId,
+        triggerType: 'schedule',
+        triggerPayload: {
+          scheduledAt: new Date().toISOString(),
+          cronExpression: expr,
+        },
+        io: ioInstance,
+      });
+    })().catch((err) => {
+      console.error(`Scheduled workflow ${workflowId} error:`, err);
     });
   });
 

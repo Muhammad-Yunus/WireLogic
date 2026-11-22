@@ -4,7 +4,6 @@ import { and, desc, eq } from 'drizzle-orm';
 import express from 'express';
 import http from 'node:http';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import pg from 'pg';
 import { Server as SocketIOServer } from 'socket.io';
 import { z } from 'zod';
@@ -49,8 +48,6 @@ import { mountSwaggerDocs } from './src/server/swagger.js';
 import type { CredentialCategory, TriggerType, WorkflowRecord } from './src/shared/types.js';
 
 const { Pool } = pg;
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 
 const PORT = Number(process.env.PORT || 3000);
 
@@ -695,15 +692,20 @@ async function createApp() {
   });
 
   app.post('/api/credentials/:id/test', requireUserAuth, async (req: AuthenticatedRequest, res, next) => {
+    const credId = String(req.params.id);
+    if (!z.string().uuid().safeParse(credId).success) {
+      res.status(400).json({ ok: false, error: 'Invalid credential ID format.' });
+      return;
+    }
     try {
       const rows = await db
         .select()
         .from(credentials)
-        .where(and(eq(credentials.id, String(req.params.id)), eq(credentials.userId, req.user!.id)))
+        .where(and(eq(credentials.id, credId), eq(credentials.userId, req.user!.id)))
         .limit(1);
 
       if (rows.length === 0) {
-        res.status(404).json({ error: 'Credential not found.' });
+        res.status(404).json({ ok: false, error: 'Credential not found.' });
         return;
       }
 
@@ -779,7 +781,8 @@ async function createApp() {
       await db
         .update(credentials)
         .set({ lastTestedAt: new Date(), lastTestStatus: `error: ${msg.slice(0, 80)}` })
-        .where(eq(credentials.id, String(req.params.id)));
+        .where(and(eq(credentials.id, credId), eq(credentials.userId, req.user!.id)))
+        .catch(() => {});
       res.status(400).json({ ok: false, error: msg });
     }
   });
@@ -1083,10 +1086,14 @@ async function createApp() {
   );
 
   // ============================================================================
-  // 8. VITE / STATIC SPA SERVING
+  // 8. API 404 + VITE / STATIC SPA SERVING + ERROR HANDLER
   // ============================================================================
+  app.all('/api/*', (_req, res) => {
+    res.status(404).json({ error: 'API endpoint not found.' });
+  });
+
   if (process.env.NODE_ENV === 'production') {
-    const distDir = path.resolve(__dirname, 'dist');
+    const distDir = path.resolve(process.cwd(), 'dist');
     app.use(express.static(distDir));
     app.get('*', (_req, res) => {
       res.sendFile(path.join(distDir, 'index.html'));
@@ -1099,6 +1106,31 @@ async function createApp() {
     });
     app.use(vite.middlewares);
   }
+
+  app.use(
+    (
+      err: unknown,
+      _req: express.Request,
+      res: express.Response,
+      _next: express.NextFunction
+    ) => {
+      const message =
+        err instanceof Error ? err.message : 'Internal server error';
+      const isInvalidUuid =
+        typeof message === 'string' && message.includes('invalid input syntax for type uuid');
+      if (isInvalidUuid) {
+        res.status(400).json({ error: 'Invalid resource ID format.' });
+        return;
+      }
+      console.error('Unhandled API error:', err);
+      res.status(500).json({
+        error:
+          process.env.NODE_ENV === 'production'
+            ? 'Internal server error.'
+            : message,
+      });
+    }
+  );
 
   server.listen(PORT, '0.0.0.0', () => {
     console.log(`WireLogic server listening on http://0.0.0.0:${PORT}`);

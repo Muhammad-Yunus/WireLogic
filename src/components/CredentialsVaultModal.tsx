@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Bot,
   CheckCircle2,
@@ -69,6 +69,19 @@ export function CredentialsVaultModal({
   const [secretFields, setSecretFields] = useState<Record<string, string>>({});
   const [busyId, setBusyId] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<{ type: 'ok' | 'err'; text: string } | null>(null);
+
+  useEffect(() => {
+    if (open) {
+      setCategory(initialCategory);
+      setCreating(false);
+      setFeedback(null);
+      if (initialCategory === 'sql_datasource') setProvider('postgres');
+      else if (initialCategory === 'rest_auth') setProvider('bearer');
+      else if (initialCategory === 's3_storage') setProvider('s3');
+      else if (initialCategory === 'ai_provider') setProvider('openai_compat');
+      else setProvider('webhook');
+    }
+  }, [open, initialCategory]);
 
   if (!open) return null;
 

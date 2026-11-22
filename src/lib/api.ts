@@ -56,3 +56,26 @@ export function createRealtimeSocket(token: string): Socket {
     reconnectionDelay: 1000,
   });
 }
+
+export async function downloadArtifact(artifactId: string, filename: string): Promise<void> {
+  const headers = new Headers();
+  if (authToken) {
+    headers.set('Authorization', `Bearer ${authToken}`);
+  }
+  const resp = await fetch(`/api/artifacts/${encodeURIComponent(artifactId)}/download`, {
+    headers,
+  });
+  if (!resp.ok) {
+    throw new Error(`Failed to download artifact (${resp.status})`);
+  }
+  const blob = await resp.blob();
+  const objectUrl = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = objectUrl;
+  a.download = filename || 'report.pdf';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(objectUrl);
+}
+
